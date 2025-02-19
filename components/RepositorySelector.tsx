@@ -80,14 +80,14 @@ const RepositorySelector = ({ token, onSelectRepo }: { token: string; onSelectRe
 
   const personalRepos = repositories.filter(
     repo => 
-      repo.owner.type === "User" && 
+      repo.owner?.type === "User" && 
       repo.name.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
   const getOrganizationRepos = (orgName: string) => {
     return repositories.filter(
       repo => 
-        repo.owner.login === orgName && 
+        repo.owner?.login === orgName && 
         repo.name.toLowerCase().includes(searchTerm.toLowerCase())
     )
   }
