@@ -9,6 +9,10 @@ interface Repository {
   full_name: string
   clone_url: string
   default_branch: string
+  owner: {
+    login: string
+    type: string
+  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -108,6 +112,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       full_name: repo.full_name,
       clone_url: repo.clone_url,
       default_branch: repo.default_branch,
+      owner: {
+        login: repo.owner.login,
+        type: repo.owner.type
+      }
     }))
 
     return res.status(200).json(formattedRepos)
