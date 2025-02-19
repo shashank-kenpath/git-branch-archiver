@@ -21,24 +21,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const decoded = jwt.verify(token, JWT_SECRET) as { github_token: string }
     const githubToken = decoded.github_token
 
-    const response = await fetch(
-      `https://api.github.com/repos/${owner}/${name}/branches`,
-      {
-        headers: {
-          Authorization: `Bearer ${githubToken}`,
-          Accept: "application/vnd.github.v3+json",
-        },
-      }
-    )
+    // Fetch all branches using pagination
+    let allBranches = []
+    let page = 1
+    let hasNextPage = true
 
-    if (!response.ok) {
-      const error = await response.json()
-      console.error("GitHub API error:", error)
-      return res.status(response.status).json({ error: "GitHub API error", details: error })
+    while (hasNextPage) {
+      const response = await fetch(
+        `https://api.github.com/repos/${owner}/${name}/branches?per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${githubToken}`,
+            Accept: "application/vnd.github.v3+json",
+          },
+        }
+      )
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error("GitHub API error:", error)
+        return res.status(response.status).json({ error: "GitHub API error", details: error })
+      }
+
+      const branches = await response.json()
+      allBranches = [...allBranches, ...branches]
+
+      // Check if there are more pages
+      const linkHeader = response.headers.get('link')
+      hasNextPage = linkHeader?.includes('rel="next"') ?? false
+      page++
+
+      // Safety check to prevent infinite loops
+      if (page > 10) break // Maximum 1000 branches (10 pages * 100 branches)
     }
 
-    const branches = await response.json()
-    return res.status(200).json(branches)
+    return res.status(200).json(allBranches)
   } catch (error) {
     console.error("Error fetching branches:", error)
     return res.status(500).json({ error: "Internal server error" })

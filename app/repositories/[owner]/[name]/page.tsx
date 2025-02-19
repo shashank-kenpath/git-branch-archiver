@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { AlertCircle, Archive, GitBranch, ChevronDown, Trash2, ArchiveX } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 import { 
   AlertDialog,
   AlertDialogAction,
@@ -31,11 +32,15 @@ interface Branch {
 
 type Operation = 'archive-only' | 'archive-and-delete' | 'delete-only'
 
+const ITEMS_PER_PAGE = 10
+
 export default function RepositoryPage() {
   const params = useParams()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [branches, setBranches] = useState<Branch[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalBranches, setTotalBranches] = useState(0)
   const [archiving, setArchiving] = useState(false)
   const [lastArchived, setLastArchived] = useState<string[] | null>(null)
   const [operation, setOperation] = useState<Operation>('archive-and-delete')
@@ -48,6 +53,11 @@ export default function RepositoryPage() {
 
   const owner = params.owner as string
   const name = params.name as string
+
+  const totalPages = Math.ceil(branches.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const endIndex = startIndex + ITEMS_PER_PAGE
+  const currentBranches = branches.slice(startIndex, endIndex)
 
   useEffect(() => {
     fetchBranches()
@@ -71,10 +81,12 @@ export default function RepositoryPage() {
       }
 
       const branchData = await response.json()
-      setBranches(branchData.map((branch: Branch) => ({
+      const branchesWithSelection = branchData.map((branch: Branch) => ({
         ...branch,
         selected: false
-      })))
+      }))
+      setBranches(branchesWithSelection)
+      setTotalBranches(branchesWithSelection.length)
       setLoading(false)
     } catch (error) {
       console.error("Error fetching branches:", error)
@@ -225,6 +237,7 @@ export default function RepositoryPage() {
     <Card className="w-full max-w-2xl mx-auto mt-8">
       <CardHeader>
         <CardTitle>Repository: {owner}/{name}</CardTitle>
+        <CardDescription>Total Branches: {totalBranches}</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
@@ -297,14 +310,14 @@ export default function RepositoryPage() {
               <div>Protected</div>
             </div>
             <div className="divide-y">
-              {branches.map((branch, index) => (
+              {currentBranches.map((branch, index) => (
                 <div 
                   key={branch.name}
                   className="grid grid-cols-[auto,1fr,auto] gap-4 p-4 items-center hover:bg-muted/50"
                 >
                   <Checkbox
                     checked={branch.selected}
-                    onCheckedChange={() => toggleBranch(index)}
+                    onCheckedChange={() => toggleBranch(startIndex + index)}
                     disabled={branch.protected}
                   />
                   <div className="flex items-center gap-2">
@@ -318,6 +331,35 @@ export default function RepositoryPage() {
               ))}
             </div>
           </div>
+
+          {totalPages > 1 && (
+            <Pagination>
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious 
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  />
+                </PaginationItem>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      onClick={() => setCurrentPage(page)}
+                      isActive={currentPage === page}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext 
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          )}
         </div>
       </CardContent>
 
