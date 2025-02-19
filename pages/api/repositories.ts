@@ -29,32 +29,78 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const token = authHeader.split(" ")[1]
   
   try {
-    // Add logging to debug token
     console.log("Received token:", token)
     
     const decoded = jwt.verify(token, JWT_SECRET) as { github_token: string }
     const githubToken = decoded.github_token
 
-    console.log("Fetching repositories...")
-    const response = await fetch("https://api.github.com/user/repos?affiliation=owner,organization_member", {
+    console.log("Using GitHub token:", githubToken.slice(0, 10) + "...")
+    
+    // First, let's check the user's permissions
+    const userResponse = await fetch("https://api.github.com/user", {
       headers: {
         Authorization: `Bearer ${githubToken}`,
         Accept: "application/vnd.github.v3+json",
       },
     })
 
+    if (!userResponse.ok) {
+      const userError = await userResponse.json()
+      console.error("GitHub User API error:", {
+        status: userResponse.status,
+        headers: Object.fromEntries(userResponse.headers.entries()),
+        error: userError
+      })
+      return res.status(userResponse.status).json({ error: "GitHub User API error", details: userError })
+    }
+
+    const userData = await userResponse.json()
+    console.log("Authenticated as user:", userData.login)
+
+    // Get user's organizations
+    const orgsResponse = await fetch("https://api.github.com/user/orgs", {
+      headers: {
+        Authorization: `Bearer ${githubToken}`,
+        Accept: "application/vnd.github.v3+json",
+      },
+    })
+
+    if (!orgsResponse.ok) {
+      console.error("Failed to fetch organizations:", await orgsResponse.json())
+    } else {
+      const orgs = await orgsResponse.json()
+      console.log("User organizations:", orgs.map((org: any) => org.login))
+    }
+
+    console.log("Fetching repositories...")
+    const response = await fetch(
+      "https://api.github.com/user/repos?affiliation=owner,organization_member&per_page=100&sort=updated", 
+      {
+        headers: {
+          Authorization: `Bearer ${githubToken}`,
+          Accept: "application/vnd.github.v3+json",
+        },
+      }
+    )
+
     if (!response.ok) {
       const errorData = await response.json()
-      console.error("GitHub API error:", {
+      console.error("GitHub Repos API error:", {
         status: response.status,
         headers: Object.fromEntries(response.headers.entries()),
-        error: errorData
+        error: errorData,
+        rateLimit: {
+          limit: response.headers.get('x-ratelimit-limit'),
+          remaining: response.headers.get('x-ratelimit-remaining'),
+          reset: response.headers.get('x-ratelimit-reset'),
+        }
       })
       return res.status(response.status).json({ error: "GitHub API error", details: errorData })
     }
 
     const repos = await response.json()
     console.log(`Found ${repos.length} repositories`)
+    console.log("Repository owners:", new Set(repos.map((repo: any) => repo.owner.login)))
 
     const formattedRepos: Repository[] = repos.map((repo: any) => ({
       id: repo.id,
