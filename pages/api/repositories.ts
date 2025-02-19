@@ -35,19 +35,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const decoded = jwt.verify(token, JWT_SECRET) as { github_token: string }
     const githubToken = decoded.github_token
 
-    const response = await fetch("https://api.github.com/user/repos", {
+    console.log("Fetching repositories...")
+    const response = await fetch("https://api.github.com/user/repos?affiliation=owner,organization_member", {
       headers: {
         Authorization: `Bearer ${githubToken}`,
+        Accept: "application/vnd.github.v3+json",
       },
     })
 
     if (!response.ok) {
       const errorData = await response.json()
-      console.error("GitHub API error:", errorData)
+      console.error("GitHub API error:", {
+        status: response.status,
+        headers: Object.fromEntries(response.headers.entries()),
+        error: errorData
+      })
       return res.status(response.status).json({ error: "GitHub API error", details: errorData })
     }
 
     const repos = await response.json()
+    console.log(`Found ${repos.length} repositories`)
 
     const formattedRepos: Repository[] = repos.map((repo: any) => ({
       id: repo.id,
