@@ -4,7 +4,7 @@ import { useParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Button } from "@/components/ui/button"
-import { AlertCircle, Archive, GitBranch, ChevronDown, Trash2, ArchiveX } from "lucide-react"
+import { AlertCircle, Archive, GitBranch, ChevronDown, Trash2, ArchiveX, Tag } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface Branch {
   name: string
@@ -31,6 +32,14 @@ interface Branch {
 }
 
 type Operation = 'archive-only' | 'archive-and-delete' | 'delete-only'
+
+interface GitTag {
+  name: string
+  commit: {
+    sha: string
+    url: string
+  }
+}
 
 const ITEMS_PER_PAGE = 10
 
@@ -50,6 +59,12 @@ export default function RepositoryPage() {
     branches: string[]
   } | null>(null)
   const [confirmationInput, setConfirmationInput] = useState("")
+  const [tagPrefix, setTagPrefix] = useState<string>('archive')
+  const [tags, setTags] = useState<GitTag[]>([])
+  const [tagsLoading, setTagsLoading] = useState(true)
+  const [tagsError, setTagsError] = useState<string | null>(null)
+  const [tagsCurrentPage, setTagsCurrentPage] = useState(1)
+  const [totalTags, setTotalTags] = useState(0)
 
   const owner = params.owner as string
   const name = params.name as string
@@ -59,8 +74,14 @@ export default function RepositoryPage() {
   const endIndex = startIndex + ITEMS_PER_PAGE
   const currentBranches = branches.slice(startIndex, endIndex)
 
+  const tagsTotalPages = Math.ceil(tags.length / ITEMS_PER_PAGE)
+  const tagsStartIndex = (tagsCurrentPage - 1) * ITEMS_PER_PAGE
+  const tagsEndIndex = tagsStartIndex + ITEMS_PER_PAGE
+  const currentTags = tags.slice(tagsStartIndex, tagsEndIndex)
+
   useEffect(() => {
     fetchBranches()
+    fetchTags()
   }, [owner, name])
 
   const fetchBranches = async () => {
@@ -92,6 +113,34 @@ export default function RepositoryPage() {
       console.error("Error fetching branches:", error)
       setError("Failed to fetch branches")
       setLoading(false)
+    }
+  }
+
+  const fetchTags = async () => {
+    try {
+      const token = localStorage.getItem("github_token")
+      if (!token) {
+        throw new Error("No authentication token found")
+      }
+
+      const response = await fetch(`/api/repositories/${owner}/${name}/tags`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch tags")
+      }
+
+      const tagData = await response.json()
+      setTags(tagData)
+      setTotalTags(tagData.length)
+      setTagsLoading(false)
+    } catch (error) {
+      console.error("Error fetching tags:", error)
+      setTagsError("Failed to fetch tags")
+      setTagsLoading(false)
     }
   }
 
@@ -140,7 +189,7 @@ export default function RepositoryPage() {
 
       if (op !== 'delete-only') {
         const tagCheckPromises = selectedBranches.map(async (branch) => {
-          const tagName = `archive/${branch.replace(/\//g, '-')}`
+          const tagName = `${tagPrefix}/${branch.replace(/\//g, '-')}`
           const response = await fetch(
             `https://api.github.com/repos/${owner}/${name}/git/refs/tags/${tagName}`,
             {
@@ -171,7 +220,8 @@ export default function RepositoryPage() {
         },
         body: JSON.stringify({ 
           branches: selectedBranches,
-          operation: op
+          operation: op,
+          tagPrefix
         }),
       })
 
@@ -237,130 +287,225 @@ export default function RepositoryPage() {
     <Card className="w-full max-w-2xl mx-auto mt-8">
       <CardHeader>
         <CardTitle>Repository: {owner}/{name}</CardTitle>
-        <CardDescription>Total Branches: {totalBranches}</CardDescription>
+        <CardDescription>
+          {totalBranches} Branches | {totalTags} Tags
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-4">
-          {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+        <Tabs defaultValue="branches" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="branches" className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4" />
+              Branches
+            </TabsTrigger>
+            <TabsTrigger value="tags" className="flex items-center gap-2">
+              <Tag className="h-4 w-4" />
+              Tags
+            </TabsTrigger>
+          </TabsList>
 
-          <div className="flex gap-4">
-            <Button 
-              variant="outline" 
-              onClick={handleSelectAll}
-              className="flex items-center gap-2"
-            >
-              Select All
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleUnselectAll}
-              className="flex items-center gap-2"
-            >
-              Unselect All
-            </Button>
-            
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="default"
-                  disabled={!branches.some(b => b.selected) || archiving}
-                  className="flex items-center gap-2 ml-auto"
+          <TabsContent value="branches">
+            <div className="space-y-4">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex gap-4 items-center">
+                <Button 
+                  variant="outline" 
+                  onClick={handleSelectAll}
+                  className="flex items-center gap-2"
                 >
-                  {archiving ? 'Processing...' : 'Process Selected'}
-                  <ChevronDown className="h-4 w-4" />
+                  Select All
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => handleOperation('archive-only')}>
-                  <Archive className="h-4 w-4 mr-2" />
-                  Archive Only
-                </DropdownMenuItem>
-                {/* Commenting out delete operations for now
-                <DropdownMenuItem onClick={() => handleOperation('archive-and-delete')}>
-                  <ArchiveX className="h-4 w-4 mr-2" />
-                  Archive and Delete
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleOperation('delete-only')}>
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete Only
-                </DropdownMenuItem>
-                */}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-
-          {lastArchived && lastArchived.length > 0 && (
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                Successfully processed: {lastArchived.join(', ')}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <div className="border rounded-lg">
-            <div className="grid grid-cols-[auto,1fr,auto] gap-4 p-4 border-b bg-muted/50">
-              <div>Select</div>
-              <div>Branch Name</div>
-              <div>Protected</div>
-            </div>
-            <div className="divide-y">
-              {currentBranches.map((branch, index) => (
-                <div 
-                  key={branch.name}
-                  className="grid grid-cols-[auto,1fr,auto] gap-4 p-4 items-center hover:bg-muted/50"
+                <Button 
+                  variant="outline" 
+                  onClick={handleUnselectAll}
+                  className="flex items-center gap-2"
                 >
-                  <Checkbox
-                    checked={branch.selected}
-                    onCheckedChange={() => toggleBranch(startIndex + index)}
-                    disabled={branch.protected}
+                  Unselect All
+                </Button>
+                
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Tag prefix"
+                    value={tagPrefix}
+                    onChange={(e) => setTagPrefix(e.target.value)}
+                    className="w-32"
                   />
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="h-4 w-4 text-muted-foreground" />
-                    {branch.name}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {branch.protected ? "Yes" : "No"}
-                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-
-          {totalPages > 1 && (
-            <Pagination>
-              <PaginationContent>
-                <PaginationItem>
-                  <PaginationPrevious 
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                  />
-                </PaginationItem>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <PaginationItem key={page}>
-                    <PaginationLink
-                      onClick={() => setCurrentPage(page)}
-                      isActive={currentPage === page}
+                
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="default"
+                      disabled={!branches.some(b => b.selected) || archiving}
+                      className="flex items-center gap-2 ml-auto"
                     >
-                      {page}
-                    </PaginationLink>
-                  </PaginationItem>
-                ))}
-                <PaginationItem>
-                  <PaginationNext 
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                  />
-                </PaginationItem>
-              </PaginationContent>
-            </Pagination>
-          )}
-        </div>
+                      {archiving ? 'Processing...' : 'Process Selected'}
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem onClick={() => handleOperation('archive-only')}>
+                      <Archive className="h-4 w-4 mr-2" />
+                      Archive Only
+                    </DropdownMenuItem>
+                    {/* Commenting out delete operations for now
+                    <DropdownMenuItem onClick={() => handleOperation('archive-and-delete')}>
+                      <ArchiveX className="h-4 w-4 mr-2" />
+                      Archive and Delete
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleOperation('delete-only')}>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Only
+                    </DropdownMenuItem>
+                    */}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {lastArchived && lastArchived.length > 0 && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Successfully processed: {lastArchived.join(', ')}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="border rounded-lg">
+                <div className="grid grid-cols-[auto,1fr,auto] gap-4 p-4 border-b bg-muted/50">
+                  <div>Select</div>
+                  <div>Branch Name</div>
+                  <div>Protected</div>
+                </div>
+                <div className="divide-y">
+                  {currentBranches.map((branch, index) => (
+                    <div 
+                      key={branch.name}
+                      className="grid grid-cols-[auto,1fr,auto] gap-4 p-4 items-center hover:bg-muted/50"
+                    >
+                      <Checkbox
+                        checked={branch.selected}
+                        onCheckedChange={() => toggleBranch(startIndex + index)}
+                        disabled={branch.protected}
+                      />
+                      <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4 text-muted-foreground" />
+                        {branch.name}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        {branch.protected ? "Yes" : "No"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {totalPages > 1 && (
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                      />
+                    </PaginationItem>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => setCurrentPage(page)}
+                          isActive={currentPage === page}
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    ))}
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
+            </div>
+          </TabsContent>
+
+          <TabsContent value="tags">
+            <div className="space-y-4">
+              {tagsError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{tagsError}</AlertDescription>
+                </Alert>
+              )}
+
+              {tagsLoading ? (
+                <div>Loading tags...</div>
+              ) : (
+                <>
+                  <div className="border rounded-lg">
+                    <div className="grid grid-cols-[1fr,auto] gap-4 p-4 border-b bg-muted/50">
+                      <div>Tag Name</div>
+                      <div>Commit SHA</div>
+                    </div>
+                    <div className="divide-y">
+                      {currentTags.map((tag) => (
+                        <div 
+                          key={tag.name}
+                          className="grid grid-cols-[1fr,auto] gap-4 p-4 items-center hover:bg-muted/50"
+                        >
+                          <div className="flex items-center gap-2">
+                            <Tag className="h-4 w-4 text-muted-foreground" />
+                            {tag.name}
+                          </div>
+                          <div className="text-sm font-mono text-muted-foreground">
+                            {tag.commit.sha.substring(0, 7)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {tagsTotalPages > 1 && (
+                    <Pagination>
+                      <PaginationContent>
+                        <PaginationItem>
+                          <PaginationPrevious 
+                            onClick={() => setTagsCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={tagsCurrentPage === 1}
+                          />
+                        </PaginationItem>
+                        {Array.from({ length: tagsTotalPages }, (_, i) => i + 1).map((page) => (
+                          <PaginationItem key={page}>
+                            <PaginationLink
+                              onClick={() => setTagsCurrentPage(page)}
+                              isActive={tagsCurrentPage === page}
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        ))}
+                        <PaginationItem>
+                          <PaginationNext 
+                            onClick={() => setTagsCurrentPage(p => Math.min(tagsTotalPages, p + 1))}
+                            disabled={tagsCurrentPage === tagsTotalPages}
+                          />
+                        </PaginationItem>
+                      </PaginationContent>
+                    </Pagination>
+                  )}
+                </>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </CardContent>
 
       <AlertDialog open={confirmationOpen} onOpenChange={setConfirmationOpen}>

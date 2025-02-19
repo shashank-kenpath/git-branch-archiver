@@ -28,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const { owner, name } = req.query
-  const { branches, operation } = req.body
+  const { branches, operation, tagPrefix = 'archive' } = req.body
 
   if (!Array.isArray(branches)) {
     return res.status(400).json({ error: "Branches must be an array" })
@@ -73,7 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
           // Check for existing tag first if operation includes archiving
           if (operation !== 'delete-only') {
-            tagName = `archive/${branch.replace(/\//g, '-')}`
+            tagName = `${tagPrefix}/${branch.replace(/\//g, '-')}`
             const tagExists = await checkTagExists(owner as string, name as string, tagName, githubToken)
             
             if (tagExists) {
